@@ -41,7 +41,8 @@ lazy val root = (project in file("."))
     fpp_to_json,
     fpp_to_xml,
     fpp_to_dict,
-    fpp_to_layout
+    fpp_to_layout,
+    fpp_to_phaser
   )
 
 lazy val lib = project
@@ -108,6 +109,11 @@ lazy val fpp_to_dict = (project in file("tools/fpp-to-dict"))
   .enablePlugins(AssemblyPlugin)
 
 lazy val fpp_to_layout = (project in file("tools/fpp-to-layout"))
+  .settings(settings)
+  .dependsOn(lib)
+  .enablePlugins(AssemblyPlugin)
+
+lazy val fpp_to_phaser = (project in file("tools/fpp-to-phaser"))
   .settings(settings)
   .dependsOn(lib)
   .enablePlugins(AssemblyPlugin)
