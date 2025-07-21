@@ -14,9 +14,6 @@ object FPPToPhaser {
     numPhasers: Int = 1,
     dir: Option[String] = None,
     files: List[File] = Nil,
-    guardPrefix: Option[String] = None,
-    pathPrefixes: List[String] = Nil,
-    defaultStringSize: Int = CppWriterState.defaultDefaultStringSize,
   )
 
   def command(options: Options) = {
@@ -33,21 +30,21 @@ object FPPToPhaser {
         ResolveSpecInclude.transUnit
       )
       tulFiles <- Right(aTulFiles._2)
+
+      // Extract all rate group info from instance.fpp and annotations.
       _ <- {
         val dir = options.dir match {
           case Some(dir1) => dir1
           case None => "."
         }
-        val state = CppWriterState(
-          a,
-          dir,
-          options.guardPrefix,
-          options.pathPrefixes,
-          options.defaultStringSize,
-          Some(name)
-        )
-        PhaserCppWriter.tuList(state, tulFiles)
+        val state = RateGroupState()
+        RateGroupVisitor.tuList(state, tulFiles)
       }
+
+      // Compute SSFA by unrolling rate group execution.
+
+      // Generate phaser configurations.
+
     } yield ()
   }
 
