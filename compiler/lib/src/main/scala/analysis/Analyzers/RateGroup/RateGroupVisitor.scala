@@ -33,17 +33,24 @@ object RateGroupVisitor extends AstStateVisitor {
   ): Result = {
     val annotations = aNode._3
     for {
-      _ <- annotations.headOption match {
-        case Some(str) =>
-          PeriodParser.parse(str) match {
-            case Right(time) =>
-              println(s"Parsed time: $time") // will be MS(1), US(5), etc.
-              Right(())
-            case Left(error) =>
-              println(error)
-              Right(())
-          }
-        case None => Right(())
+      _ <- {
+        annotations.foldLeft[Result.Result[Unit]](Right(())) {
+          case (acc, str) =>
+            acc.flatMap { _ =>
+              (PeriodParser.parse(str), OffsetParser.parse(str)) match {
+                case (Right(period), _) =>
+                  println(s"Period parsed: $period")
+                  Right(())
+                case (_, Right(offset)) =>
+                  println(s"Offset parsed: $offset")
+                  Right(())
+                case (Left(err1), Left(err2)) =>
+                  println(s"Failed to parse: $str")
+                  println(s"Errors: $err1 | $err2")
+                  Right(())
+              }
+            }
+        }
       }
     } yield s
   }
