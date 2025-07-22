@@ -4,20 +4,21 @@ import fpp.compiler.ast._
 import fpp.compiler.util._
 
 case class RateGroupState(
-    periodMap: Map[String, String] = Map()
+    periodMap: Map[String, Time] = Map(), // Map from a rate group instance name to its period.
+    offsetMap: Map[String, Time] = Map()  // Map from a rate group instance name to its offset.
 )
 
 object RateGroupVisitor extends AstStateVisitor {
 
   type State = RateGroupState
 
-  override def transUnit(s: State, tu: Ast.TransUnit) =
+  override def transUnit(s: State, tu: Ast.TransUnit): Result.Result[State] =
     visitList(s, tu.members, matchTuMember)
 
-  def tuList(s: State, tul: List[Ast.TransUnit]): Result.Result[Unit] =
+  def tuList(s: State, tul: List[Ast.TransUnit]): Result.Result[State] =
     for {
-      _ <- visitList(s, tul, transUnit)
-    } yield ()
+      s <- visitList(s, tul, transUnit)
+    } yield s
 
   override def defModuleAnnotatedNode(
     s: State,
@@ -30,24 +31,27 @@ object RateGroupVisitor extends AstStateVisitor {
 
   override def defComponentInstanceAnnotatedNode(
     s: State, aNode: Ast.Annotated[AstNode[Ast.DefComponentInstance]]
-  ): Result = {
-    val annotations = aNode._3
+  ): Result.Result[State] = {
+    val node = aNode._2
+    val postNotations = aNode._3
     for {
-      _ <- {
-        annotations.foldLeft[Result.Result[Unit]](Right(())) {
+      s <- {
+        postNotations.foldLeft[Result.Result[State]](Right(s)) {
           case (acc, str) =>
-            acc.flatMap { _ =>
+            acc.flatMap { state =>
               (PeriodParser.parse(str), OffsetParser.parse(str)) match {
                 case (Right(period), _) =>
                   println(s"Period parsed: $period")
-                  Right(())
+                  val periodMap = s.periodMap + (aNode._2.data.name -> period)
+                  Right(state.copy(periodMap = periodMap))
                 case (_, Right(offset)) =>
                   println(s"Offset parsed: $offset")
-                  Right(())
+                  val offsetMap = state.offsetMap + (aNode._2.data.name -> offset)
+                  Right(state.copy(offsetMap = offsetMap))
                 case (Left(err1), Left(err2)) =>
                   println(s"Failed to parse: $str")
                   println(s"Errors: $err1 | $err2")
-                  Right(())
+                  Right(state)
               }
             }
         }

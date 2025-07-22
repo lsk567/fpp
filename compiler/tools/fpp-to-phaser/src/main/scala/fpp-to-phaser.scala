@@ -23,13 +23,11 @@ object FPPToPhaser {
     }
     val a = Analysis(inputFileSet = options.files.toSet)
     for {
+      _ <- {
+        println("Number of phasers requested: " + options.numPhasers)
+        Right(())
+      }
       tulFiles <- Result.map(files, Parser.parseFile (Parser.transUnit) (None) _)
-      aTulFiles <- ResolveSpecInclude.transformList(
-        a,
-        tulFiles, 
-        ResolveSpecInclude.transUnit
-      )
-      tulFiles <- Right(aTulFiles._2)
 
       // Extract all rate group info from instance.fpp and annotations.
       _ <- {
@@ -37,8 +35,16 @@ object FPPToPhaser {
           case Some(dir1) => dir1
           case None => "."
         }
-        val state = RateGroupState()
-        RateGroupVisitor.tuList(state, tulFiles)
+        val s = RateGroupState()
+        val result = RateGroupVisitor.tuList(s, tulFiles)
+        // Use map() here to ensure the Result monad is returned.
+        result.map { s =>
+          // Print state maps to sanity check.
+          println("Period map:")
+          s.periodMap.foreach { case (key, value) => println(s"$key -> $value") }
+          println("Offset map:")
+          s.offsetMap.foreach { case (key, value) => println(s"$key -> $value") }
+        }
       }
 
       // Compute SSFA by unrolling rate group execution.
