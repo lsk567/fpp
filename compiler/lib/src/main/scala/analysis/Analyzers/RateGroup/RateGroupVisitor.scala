@@ -5,10 +5,16 @@ import fpp.compiler.ast.Ast.SpecConnectionGraph
 import fpp.compiler.util._
 
 case class RateGroupState(
-    analysis: Analysis = Analysis(), // Analysis object from CheckSemantics 
-    periodMap: Map[Symbol.ComponentInstance, Time] = Map(), // Map from a rate group instance name to its period.
-    offsetMap: Map[Symbol.ComponentInstance, Time] = Map(), // Map from a rate group instance name to its offset.
-    taskMap: Map[Symbol.ComponentInstance, List[PortInstanceIdentifier]] = Map() // Map from a rate group instance to a list of ports it calls within a period.
+    // Analysis object from CheckSemantics
+    analysis: Analysis = Analysis(),
+    // Map from a rate group instance name to its period.
+    periodMap: Map[Symbol.ComponentInstance, Time] = Map(),
+    // Map from a rate group instance name to its offset.
+    offsetMap: Map[Symbol.ComponentInstance, Time] = Map(),
+    // Map from a rate group instance to a list of tuples,
+    // each of which is a downstream port being called
+    // within a period and the output Sched port channel index.
+    taskMap: Map[Symbol.ComponentInstance, List[(Connection.Endpoint, Int)]] = Map()
 )
 
 object RateGroupVisitor extends AstStateVisitor {
@@ -38,7 +44,64 @@ object RateGroupVisitor extends AstStateVisitor {
   ) = {
     val node = aNode._2
     val data = node.data
-    visitList(s, data.members, matchTopologyMember)
+
+    for {
+      // Locate the semantic version of topology.
+      symbol <- {
+        println(s"Topology found in topology.fpp: ${data.name}")
+        Right(Symbol.Topology(aNode))
+      }
+      topology <- Right(s.analysis.topologyMap(symbol))
+      // Find all connections from rate groups.
+      rateGroupConnections <- Right {
+        topology.connectionMap.values.flatten.toList.filter(
+          conn => {
+            val fromPort: PortInstanceIdentifier = conn.from.port
+            val fromPortInstance: PortInstance = fromPort.portInstance
+            fromPortInstance.match {
+              case PortInstance.General(_, _, _, _, ty, _) => {
+                val compInstance = fromPort.componentInstance
+                val comp = compInstance.component
+                val compName = comp.aNode._2.data.name
+                // A connection passes the filter if
+                // the upstream component is an active rate group
+                // and the from port has type Sched. 
+                compName == "ActiveRateGroup"
+                  && ty.toString() == "Sched"
+              }
+              case _ => false
+            }
+          }
+        )
+      }
+      // Map rate groups to destination ports.
+      s <- {
+        // For each connection, group connections by rate group instances.
+        // Then sort the resulting list by portNumber.
+        val updatedTaskMap = rateGroupConnections.map { conn =>
+          val rateGroupInstance = conn.from.port.componentInstance.aNode
+          val toEndpoint = conn.to
+          val fromPortNumber = conn.from.portNumber match {
+            case Some(i) => i
+            case None => 0 // FIXME: This does not account for auto-assigning port numbers.
+          }
+          // Map each connection to a key-value tuple.
+          (Symbol.ComponentInstance(rateGroupInstance), (toEndpoint, fromPortNumber))
+        }
+        .groupBy(_._1)
+        .view
+        .mapValues(_.map(_._2).sortBy(_._2))
+        .toMap
+
+        println("taskMap:")
+        println(updatedTaskMap)
+
+        // Return a Result monad with an updated state.
+        Right(s.copy(taskMap = updatedTaskMap))
+      }
+      s <- visitList(s, data.members, matchTopologyMember)
+    }
+    yield s
   }
 
   override def defComponentInstanceAnnotatedNode(
@@ -76,34 +139,7 @@ object RateGroupVisitor extends AstStateVisitor {
   ) = {
     val node = aNode._2
     val data = node.data
-    for {
-      s <- {
-        // println(s.analysis.useDefMap)
-        data match {
-          case SpecConnectionGraph.Direct(name, connections) => {
-            println(s"$name, $connections")
-            connections.map { connection => {
-              // Get fromPort, check if it comes from an active rate group,
-              // and if it is a non-special output port with Sched type.
-              // Assumption: The active rate group only has one
-              // non-special output port with Sched type.
-              // This assumption must be satisfied by the implementation of
-              // active rate groups.
-              val fromPort = connection.fromPort
-              val fromIndex = connection.fromIndex
-              // Get port def from port instance identifier
-              // val portInstance = s.analysis.getComponentInstance(fromPort.id)
-              // val portDef = s.analysis.useDefMap(fromPort.id)
-
-              // If so, get the rate group instance, then add a toPort to the
-              // list mapped from the rate group instance. 
-            }}
-            Right(s)
-          }
-          case SpecConnectionGraph.Pattern(kind, source, targets) => Right(s)
-        }
-      }
-    } yield s
+    Right(s)
   }
 
 }
